@@ -1,0 +1,61 @@
+# ADU Models Dev Sessions
+
+## 2025-08-26
+- Installed and tested RevitPythonShell (RPS) for advanced Revit API scripting.
+- Compared pyRevit and RPS workflows; explored batch export and direct API access.
+- Configured export workflow using selection set "A200-M1-i".
+- Used template file: GSADUs New 1 Story Template.rte for valid RVT exports.
+- Attempted to export model and view-specific elements to A200-M1-i.rvt; diagnosed issues with blank exports and element compatibility.
+- Documented troubleshooting steps for copying elements, handling view-specific items, and using templates.
+- Saved session notes and filepaths to Config.txt and pyRevit Code Helper.txt for future reference.
+- Planned future diagnostics for selection set content and export logic.
+- Updated batch_move_log.csv to use 'Key' column (model group name, no extension), alphabetically sorted, and truncated timestamps for easier automation.
+- Revised batch_move_rvt.py script to upsert log entries by key, maintain modular structure, and support future batch automation.
+- Manual edits made to CSV log for accuracy and future reference.
+- Next step: develop batch linking/tagging script using CSV log as manifest for Revit automation.
+- Converted config.txt info into a new README.md file with markdown formatting for improved clarity and project documentation.
+- README.md now serves as a persistent, structured reference for project setup, workflows, scripts, and environment details.
+- Discussed benefits of markdown and README files for collaboration and onboarding.
+- All key project info is now cross-referenced in README.md and Config.txt for future automation and team use.
+
+## 2025-08-27
+	- Finalized Dynamo Python RSL cleanup tool for Revit 2026: robust logic for deleting and recreating Room Separation Lines (RSLs) at slab edges.
+	- Improved workflow to delete all parallel/offset RSLs near slab edges before creating new, correctly placed RSLs.
+	- Added error handling and tolerance checks for both horizontal and vertical alignment.
+	- Validated tool on multiple models; confirmed only correct RSLs remain after cleanup.
+	- Manually fixed room boundaries in Revit for all 90+ models after completing the tool.
+	- Discussed tolerance logic, input handling, and future options for separate vertical/horizontal tolerances.
+	- Session notes and code changes updated in project documentation for future reference and team use.
+	- Confirmed session notes are appended only; no previous entries were removed or replaced.
+	- If further details or corrections are needed, will append as additional bullet points to preserve full history.
+	- All session notes for 2025-08-27 are preserved. New summaries will always be appended, never replacing previous entries.
+	- Ensured session notes and code changes are cross-referenced in project documentation for future automation and team use.
+	- Finalized Dynamo Python RSL cleanup tool for Revit 2026: robust logic for deleting and recreating Room Separation Lines (RSLs) at slab edges.
+	- Improved workflow to delete all parallel/offset RSLs near slab edges before creating new, correctly placed RSLs.
+	- Added error handling and tolerance checks for both horizontal and vertical alignment.
+	- Validated tool on multiple models; confirmed only correct RSLs remain after cleanup.
+	- Manually fixed room boundaries in Revit for all 90+ models after completing the tool.
+	- Discussed tolerance logic, input handling, and future options for separate vertical/horizontal tolerances.
+	- Session notes and code changes updated in project documentation for future reference and team use.
+	- Confirmed session notes for today are appended, not replacing any previous entries.
+
+## 2025-08-28
+• Installed Visual Studio Community 2022 and configured .NET Framework 4.7.2 for Revit 2026 add-in development.
+• Verified RevitAPI.dll and RevitAPIUI.dll references; confirmed workspace and shared drive setup.
+• Created a new Class Library (.NET Framework) project and set up project properties.
+• Documented best practices for project location, naming, and modular architecture.
+• Provided detailed Copilot prompt for batch automation, including workspace, README, and modular goals.
+• Discussed and confirmed modular approach for batch processing, allowing selection of specific automation modules per run.
+• Ensured all session notes are appended and project history is preserved.
+•	Set up a C# Revit add-in project targeting .NET Framework 4.7.2 for batch automation.
+•	Added references to RevitAPI, RevitAPIUI, and System.Windows.Forms for Revit API and UI integration.
+•	Created a modular batch process system using an IBatchProcess interface for plug-and-play automation.
+•	Implemented OpenAndSaveProcess to test batch open/save functionality on multiple Revit files.
+•	Updated batch command to recursively search subfolders for matching .rvt files, ignoring backups.
+•	Integrated CSV logging for batch actions and error tracking.
+•	Registered and loaded the add-in in Revit 2026 using a .addin manifest file.
+•	Successfully tested the batch process on real project folders and confirmed modular workflow works as intended.
+
+
+
+Always append new session notes and instructions; never replace or remove previous entries unless explicitly approved. This preserves full project and session history.

@@ -1,0 +1,10 @@
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>GSADUsBatchExport</Name>
+    <Assembly>C:\Path\to\GSADUsRevitAddin\src\GSADUs.Revit.App\bin\Release\GSADUs.Revit.App.dll</Assembly>
+    <AddInId>8A83C886-B739-4ACD-8B45-123456789ABC</AddInId>
+    <FullClassName>GSADUs.BatchExport.App</FullClassName>
+    <VendorId>GSAD</VendorId>
+    <VendorDescription>GSADUs Tools</VendorDescription>
+  </AddIn>
+</RevitAddIns>

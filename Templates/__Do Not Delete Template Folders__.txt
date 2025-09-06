@@ -1,0 +1,1 @@
+This folder contains the master template structure for model group folders. It is used by automation scripts to ensure consistency across all project directories. Do not delete or modify these template folders, as they are essential for batch creation, auditing, and maintaining standardized organization throughout the catalog.

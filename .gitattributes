@@ -1,0 +1,26 @@
+# Normalize all text files: LF in repo, CRLF on Windows checkout
+* text=auto
+
+# Treat common code/text as text
+*.cs     text diff=csharp
+*.csproj text
+*.sln    text
+*.json   text
+*.xml    text
+*.md     text
+*.txt    text
+*.py     text
+*.ps1    text
+
+# Force binaries to stay binary
+*.dll    binary
+*.exe    binary
+*.pdb    binary
+*.rvt    binary
+*.rfa    binary
+*.nwc    binary
+*.dwg    binary
+*.rte    binary
+*.png    binary
+*.jpg    binary
+*.pdf    binary

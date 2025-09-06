@@ -1,0 +1,588 @@
+# Auto or Semi-Auto with anti-merge + mixed-seeds diagnostics and sets
+# IN[0] Auto toggle (ignored)
+# IN[1] Proximity ft
+# IN[2] Clustering Categories (list or comma-separated string)
+# IN[3] Update as SelectionSet (bool)
+# IN[4] Select Model Elements (scope for Semi-Auto)
+# IN[5] Selectionset Prefix (string)
+# IN[6] Rename ModelGroup (ignored)
+# IN[7] SimpleReport (bool)
+# IN[8] CommitWrites (bool)
+
+import clr
+clr.AddReference('RevitServices')
+from RevitServices.Persistence import DocumentManager
+from RevitServices.Transactions import TransactionManager
+
+clr.AddReference('RevitAPI')
+from Autodesk.Revit.DB import (
+    BoundingBoxXYZ, Category, CategoryType, ElementId, FilteredElementCollector, Outline,
+    RevitLinkInstance, BoundingBoxIntersectsFilter, XYZ, BuiltInParameter,
+    Sketch, View, ViewType, SelectionFilterElement
+)
+from System.Collections.Generic import List as NetList
+
+doc = DocumentManager.Instance.CurrentDBDocument
+
+# ---------- inputs ----------
+def IN_or(i, d=None):
+    try: return IN[i]
+    except: return d
+
+_ignored = IN_or(0)
+PROX = float(IN_or(1, 0.0) or 0.0)
+cats_in = IN_or(2, "")
+MAKE_SELSET = bool(IN_or(3, True))
+scope_in = IN_or(4, []) or []
+prefix = (str(IN_or(5, "") or "")).strip()
+_ignored_rename = IN_or(6)
+SIMPLE = bool(IN_or(7, True))
+COMMIT = bool(IN_or(8, False))
+
+PARAM_NAME = "ModelGroup"
+
+# ---------- safety knobs ----------
+SEED_DISALLOW_CROSSNAME = True   # never connect seeds with different current names
+SEED_PURITY_MIN = 0.85           # require 85% agreement among named seeds
+SEED_SECONDARY_MIN = 2           # ignore tiny minorities smaller than this
+OVERWRITE_EXISTING = False       # do not overwrite non-empty, different values
+
+# ---------- helpers ----------
+def unwrap(x):
+    try: return UnwrapElement(x)
+    except: return x
+
+def norm_names(s):
+    if not s: return []
+    return [p.strip() for p in str(s).split(",") if p.strip()]
+
+def eid_to_int(eid):
+    try: return int(eid.IntegerValue)
+    except:
+        try: return int(str(eid))
+        except:
+            try: return int(eid)
+            except: return None
+
+def id_int_of(e):
+    try: return eid_to_int(e.Id)
+    except: return None
+
+def cat_eid_from_any(x):
+    if isinstance(x, Category): return x.Id
+    ic = getattr(x, "InternalCategory", None)
+    if isinstance(ic, Category): return ic.Id
+    ida = getattr(x, "Id", None)
+    if isinstance(ida, ElementId): return ida
+    try:
+        eid = ElementId(int(x))
+        c = Category.GetCategory(doc, eid)
+        return c.Id if c else None
+    except: return None
+
+def cats_from_input(v):
+    id2name, name2id = {}, {}
+    if isinstance(v, list):
+        for c in v:
+            eid = cat_eid_from_any(c)
+            if eid:
+                cat = Category.GetCategory(doc, eid)
+                nm = cat.Name if cat else str(eid)
+                id2name[eid] = nm
+                name2id[nm.lower()] = eid
+    else:
+        wanted = norm_names(v)
+        idx = {}
+        for c in doc.Settings.Categories:
+            try: idx[c.Name.lower()] = c
+            except: pass
+        def resolve(n):
+            k = n.lower()
+            c = idx.get(k)
+            if c is None and k.endswith("s"): c = idx.get(k[:-1])
+            if c is None and not k.endswith("s"): c = idx.get(k + "s")
+            return c
+        for n in wanted:
+            c = resolve(n)
+            if c:
+                id2name[c.Id] = c.Name
+                name2id[c.Name.lower()] = c.Id
+    return id2name, name2id
+
+def e_bbox(e, v=None):
+    try: return e.get_BoundingBox(v)
+    except: return None
+
+def bb_union(a, b):
+    if a is None: return b
+    if b is None: return a
+    mn = XYZ(min(a.Min.X, b.Min.X), min(a.Min.Y, b.Min.Y), min(a.Min.Z, b.Min.Z))
+    mx = XYZ(max(a.Max.X, b.Max.X), max(a.Max.Y, b.Max.Y), max(a.Max.Z, b.Max.Z))
+    o = BoundingBoxXYZ(); o.Min = mn; o.Max = mx
+    return o
+
+def inflate_xy(bb, d, zpad):
+    if bb is None: return None
+    mn, mx = bb.Min, bb.Max
+    o = BoundingBoxXYZ()
+    o.Min = XYZ(mn.X - d, mn.Y - d, mn.Z - zpad)
+    o.Max = XYZ(mx.X + d, mx.Y + d, mx.Z + zpad)
+    return o
+
+def ol_from_bb(bb): return Outline(bb.Min, bb.Max)
+
+def _mm_xy(obj):
+    try:
+        mn, mx = obj.Min, obj.Max
+        return mn.X, mn.Y, mx.X, mx.Y
+    except:
+        pass
+    try:
+        mn, mx = obj.MinimumPoint, obj.MaximumPoint
+        return mn.X, mn.Y, mx.X, mx.Y
+    except:
+        return None
+
+def ol_intersect_xy(a, b):
+    A = _mm_xy(a); B = _mm_xy(b)
+    if not A or not B: return False
+    ax1, ay1, ax2, ay2 = A
+    bx1, by1, bx2, by2 = B
+    return not (ax2 < bx1 or ax1 > bx2 or ay2 < by1 or ay1 > by2)
+
+def shrink_xy(ol, m):
+    A = _mm_xy(ol)
+    if not A: return None
+    ax1, ay1, ax2, ay2 = A
+    nx1, ny1 = ax1 + m, ay1 + m
+    nx2, ny2 = ax2 - m, ay2 - m
+    if nx1 > nx2: nx1 = (ax1 + ax2)*0.5; nx2 = nx1
+    if ny1 > ny2: ny1 = (ay1 + ay2)*0.5; ny2 = ny1
+    bb = BoundingBoxXYZ()
+    bb.Min = XYZ(nx1, ny1, -1e6); bb.Max = XYZ(nx2, ny2, 1e6)
+    return ol_from_bb(bb)
+
+# model hits: collapse Sketch to owners, require model categories
+from Autodesk.Revit.DB import CategoryType
+def collect_model_hits(outline):
+    bbfilter = BoundingBoxIntersectsFilter(outline, 1e-6)
+    fec = (FilteredElementCollector(doc)
+           .WherePasses(bbfilter)
+           .WhereElementIsNotElementType())
+    out, seen = [], set()
+    for e in fec:
+        if isinstance(e, RevitLinkInstance):
+            continue
+        if isinstance(e, Sketch):
+            oid = getattr(e, "OwnerId", ElementId.InvalidElementId)
+            if oid and oid != ElementId.InvalidElementId:
+                owner = doc.GetElement(oid)
+                if owner:
+                    iid = id_int_of(owner)
+                    if iid is not None and iid not in seen:
+                        out.append(owner); seen.add(iid)
+            continue
+        c = getattr(e, "Category", None)
+        if not c or c.CategoryType != CategoryType.Model:
+            continue
+        iid = id_int_of(e)
+        if iid is not None and iid not in seen:
+            out.append(e); seen.add(iid)
+    return out
+
+def get_cat_id(e):
+    try:
+        c = e.Category
+        return c.Id if c else None
+    except: return None
+
+def get_param_str(e, pname):
+    p = e.LookupParameter(pname)
+    if p:
+        try: v = p.AsString();  return v if v else ""
+        except:
+            try: v = p.AsValueString();  return v if v else ""
+            except: return ""
+    return ""
+
+def has_writable(e, pname):
+    p = e.LookupParameter(pname)
+    return (p is not None) and (not p.IsReadOnly)
+
+def should_write(e, target):
+    if OVERWRITE_EXISTING: return True
+    cur = get_param_str(e, PARAM_NAME)
+    return (not cur) or (cur == target)
+
+def write_str(e, pname, val):
+    p = e.LookupParameter(pname)
+    if p and not p.IsReadOnly and val:
+        p.Set(val); return True
+    return False
+
+# selection sets
+PROHIBITED = set(list("{}[]|;<>?`~"))
+def sanitize(n):
+    return "".join("_" if ch in PROHIBITED else ch for ch in n)[:240].strip()
+
+def amb_pair_name(n1, n2):
+    return sanitize("__{} - {}".format(n1, n2))
+
+def upsert_selset(name, ids_iter):
+    ids_net = NetList[ElementId]()
+    s = set()
+    for iid in ids_iter:
+        if iid is None: continue
+        if iid in s: continue
+        s.add(iid); ids_net.Add(ElementId(iid))
+    if not s: return False
+    ex = None
+    for sf in FilteredElementCollector(doc).OfClass(SelectionFilterElement):
+        if sf.Name == name:
+            ex = sf; break
+    if ex: ex.SetElementIds(ids_net)
+    else: SelectionFilterElement.Create(doc, name).SetElementIds(ids_net)
+    return True
+
+def pretty_label(iid):
+    e = doc.GetElement(ElementId(iid))
+    if not e: return "{} - missing".format(iid)
+    try:
+        tid = e.GetTypeId()
+        t = doc.GetElement(tid) if tid and tid != ElementId.InvalidElementId else None
+        fam = t.get_Parameter(BuiltInParameter.SYMBOL_FAMILY_NAME_PARAM).AsString() if t else ""
+        tname = t.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString() if t else e.Name
+        label = "{}: {}".format(fam, tname) if fam and tname else (tname or e.Name)
+    except:
+        label = e.Name
+    return "{} - {}".format(iid, label)
+
+# ---------- constants ----------
+ZPAD = 10000.0
+R_CORE = max(0.0, 0.5*PROX)
+AMB_MARGIN = 0.25*PROX
+
+# ---------- categories ----------
+cat_id_to_name, _ = cats_from_input(cats_in)
+REQ_CAT_IDS = set(cat_id_to_name.keys())
+REQ_CAT_NAMES = [cat_id_to_name[c] for c in REQ_CAT_IDS]
+
+# ---------- scope ----------
+scope = [s for s in unwrap(scope_in) if hasattr(s, "Id")]
+scope_bb = None
+for e in scope:
+    b = e_bbox(e)
+    if b: scope_bb = bb_union(scope_bb, b)
+scope_inf = inflate_xy(scope_bb, PROX, ZPAD) if scope_bb else None
+
+# ---------- seeds ----------
+seeds, seed_bb_core, seed_bb_full, seed_name = [], [], [], []
+for e in FilteredElementCollector(doc).WhereElementIsNotElementType():
+    if isinstance(e, RevitLinkInstance): continue
+    if get_cat_id(e) in REQ_CAT_IDS:
+        b = e_bbox(e)
+        if b is None: continue
+        core = inflate_xy(b, R_CORE, ZPAD)
+        if scope_inf is not None and not ol_intersect_xy(core, scope_inf):
+            continue
+        seeds.append(e); seed_bb_full.append(b); seed_bb_core.append(core)
+        seed_name.append(get_param_str(e, PARAM_NAME))
+
+# ---------- cluster graph (no cross-name edges) ----------
+n = len(seeds)
+visited = [False]*n
+adj = [[] for _ in range(n)]
+for i in range(n):
+    bi = seed_bb_core[i]; ni = seed_name[i]
+    for j in range(i+1, n):
+        bj = seed_bb_core[j]; nj = seed_name[j]
+        if not ol_intersect_xy(bi, bj): continue
+        if SEED_DISALLOW_CROSSNAME and ni and nj and ni != nj: 
+            continue
+        adj[i].append(j); adj[j].append(i)
+
+clusters_idx = []
+for i in range(n):
+    if visited[i]: continue
+    comp, st = [], [i]; visited[i] = True
+    while st:
+        u = st.pop(); comp.append(u)
+        for v in adj[u]:
+            if not visited[v]:
+                visited[v] = True; st.append(v)
+    clusters_idx.append(comp)
+
+# ---------- per-cluster info ----------
+infos = []
+for comp in clusters_idx:
+    bb = None; core_union = None; elems = []; names = []; seed_ids = []
+    for k in comp:
+        e = seeds[k]
+        b = seed_bb_full[k]; cbb = seed_bb_core[k]
+        elems.append(e); names.append(seed_name[k]); seed_ids.append(id_int_of(e))
+        bb = bb_union(bb, b); core_union = bb_union(core_union, cbb)
+    if bb is None: infos.append(None); continue
+    obb = inflate_xy(bb, PROX, ZPAD)
+    infos.append({
+        "seeds": elems,
+        "seed_names": names,
+        "seed_ids": seed_ids,
+        "outline": ol_from_bb(obb),
+        "core_outline": ol_from_bb(core_union)
+    })
+
+# ---------- majority and hits + seed-purity test ----------
+def majority_name(seeds, hits_core):
+    counts = {}
+    for e in seeds:
+        v = get_param_str(e, PARAM_NAME)
+        if v: counts[v] = counts.get(v, 0) + 1
+    if counts:
+        best = max(counts.values()); top = [k for k,v in counts.items() if v == best]
+        if len(top) == 1: return top[0]
+    counts = {}
+    for e in hits_core:
+        v = get_param_str(e, PARAM_NAME)
+        if v: counts[v] = counts.get(v, 0) + 1
+    if counts:
+        best = max(counts.values()); top = [k for k,v in counts.items() if v == best]
+        if len(top) == 1: return top[0]
+    return None
+
+def seed_purity_result(names):
+    labeled = [n for n in names if n]
+    counts = {}
+    for n in labeled: counts[n] = counts.get(n, 0) + 1
+    if not labeled: 
+        return True, None, None, {}
+    # sort counts
+    items = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    major, maj_ct = items[0][0], items[0][1]
+    sec_ct = items[1][1] if len(items) > 1 else 0
+    purity = float(maj_ct)/float(len(labeled))
+    ok = (purity >= SEED_PURITY_MIN) or (sec_ct < SEED_SECONDARY_MIN)
+    return ok, major, (items[1][0] if len(items)>1 else None), counts
+
+for inf in infos:
+    if inf is None: continue
+
+    ok_purity, major_seed, second_seed, name_counts = seed_purity_result(inf["seed_names"])
+    inf["seed_major"] = major_seed
+    inf["seed_second"] = second_seed
+    inf["seed_counts"] = name_counts
+
+    if not ok_purity:
+        inf["valid"] = False; inf["reason"] = "mixed_seeds"
+        # minority seed ids to highlight
+        minor_ids = []
+        for nm, sid in zip(inf["seed_names"], inf["seed_ids"]):
+            if nm and nm != major_seed:
+                minor_ids.append(sid)
+        inf["minor_seed_ids"] = minor_ids
+        continue
+
+    hits_all = collect_model_hits(inf["outline"])
+    hits_core = [e for e in hits_all if get_cat_id(e) in REQ_CAT_IDS]
+    inf["hits_all"] = hits_all
+    inf["hits_core"] = hits_core
+
+    present = set(get_cat_id(e) for e in hits_core if get_cat_id(e) in REQ_CAT_IDS)
+    missing = list(REQ_CAT_IDS - present)
+    if missing:
+        inf["valid"] = False; inf["reason"] = "quorum"; continue
+
+    name = majority_name(inf["seeds"], hits_core)
+    if not name:
+        inf["valid"] = False; inf["reason"] = "majority"; continue
+
+    inf["group_name"] = name
+    inf["valid"] = True
+
+# ---------- ambiguity on clustering categories only ----------
+def ids_from_core_hits(inf):
+    return set(eid_to_int(e.Id) for e in inf.get("hits_core", []) if eid_to_int(e.Id) is not None)
+
+def owner_ids_in_overlap(oi, oj):
+    Ai = _mm_xy(oi); Aj = _mm_xy(oj)
+    if not Ai or not Aj: return []
+    x1 = max(Ai[0], Aj[0]); y1 = max(Ai[1], Aj[1])
+    x2 = min(Ai[2], Aj[2]); y2 = min(Ai[3], Aj[3])
+    if x1 > x2 or y1 > y2: return []
+    bb = BoundingBoxXYZ(); bb.Min = XYZ(x1, y1, -ZPAD); bb.Max = XYZ(x2, y2, ZPAD)
+    ol = ol_from_bb(bb)
+    hits = collect_model_hits(ol)
+    owners = []
+    for e in hits:
+        if get_cat_id(e) in REQ_CAT_IDS:
+            iid = eid_to_int(e.Id)
+            if iid is not None: owners.append(iid)
+    return sorted(list(set(owners)))
+
+core_sets = [ids_from_core_hits(inf) if inf else set() for inf in infos]
+amb_pairs = []; amb_idx = set()
+
+for i in range(len(infos)):
+    Ii = infos[i]
+    if Ii is None or not Ii.get("valid", False): continue
+    for j in range(i+1, len(infos)):
+        Ij = infos[j]
+        if Ij is None or not Ij.get("valid", False): continue
+        shared = core_sets[i].intersection(core_sets[j])
+        if shared:
+            amb_idx.add(i); amb_idx.add(j)
+            amb_pairs.append({"i": i, "j": j, "ids": sorted(list(shared))})
+            continue
+        oi = shrink_xy(Ii["core_outline"], AMB_MARGIN)
+        oj = shrink_xy(Ij["core_outline"], AMB_MARGIN)
+        if oi and oj and ol_intersect_xy(oi, oj):
+            amb_idx.add(i); amb_idx.add(j)
+            ids = owner_ids_in_overlap(oi, oj)
+            if not ids:
+                ids = list(core_sets[i].union(core_sets[j]))
+            amb_pairs.append({"i": i, "j": j, "ids": ids})
+
+for i in amb_idx:
+    if infos[i] and infos[i].get("valid", False):
+        infos[i]["valid"] = False
+        infos[i]["reason"] = "ambiguous"
+
+# ---------- writes and selection sets ----------
+writes = 0
+skipped_existing = 0
+skipped_others = 0
+group_sets = {}
+mixed_sets = []  # names created for mixed seeds
+
+need_tx = COMMIT or MAKE_SELSET
+if need_tx: TransactionManager.Instance.EnsureInTransaction(doc)
+
+for inf in infos:
+    if inf is None: continue
+
+    if inf.get("reason") == "mixed_seeds":
+        # create a set for minority seeds so you can fix them
+        if MAKE_SELSET:
+            maj = inf.get("seed_major") or "(blank)"
+            sec = inf.get("seed_second") or "(other)"
+            nm = amb_pair_name(maj, sec)
+            if upsert_selset(nm, inf.get("minor_seed_ids", [])):
+                mixed_sets.append(nm)
+        skipped_others += 1
+        continue
+
+    if not inf.get("valid", False):
+        if inf.get("reason") in ("ambiguous","quorum","majority"):
+            skipped_others += 1
+        continue
+
+    gname = inf["group_name"]
+    hits_all = inf["hits_all"]
+
+    if COMMIT:
+        for e in hits_all:
+            if has_writable(e, PARAM_NAME):
+                if should_write(e, gname):
+                    if write_str(e, PARAM_NAME, gname): writes += 1
+                else:
+                    skipped_existing += 1
+
+    if COMMIT and MAKE_SELSET:
+        b = group_sets.setdefault(gname, set())
+        for e in hits_all:
+            iid = id_int_of(e)
+            if iid is not None: b.add(iid)
+
+selsets_created = 0
+def safe(n): return n if (n and str(n).strip()) else "(no-name)"
+
+if need_tx:
+    if COMMIT and MAKE_SELSET:
+        for name, ids_py in group_sets.items():
+            sel_name = sanitize((prefix + name) if prefix else name)
+            if upsert_selset(sel_name, ids_py): selsets_created += 1
+
+    if MAKE_SELSET and amb_pairs:
+        for pr in amb_pairs:
+            i, j = pr["i"], pr["j"]
+            ni = safe(infos[i]["group_name"] if infos[i] else "Cluster{}".format(i))
+            nj = safe(infos[j]["group_name"] if infos[j] else "Cluster{}".format(j))
+            nm = amb_pair_name(ni, nj)
+            if upsert_selset(nm, pr["ids"]): selsets_created += 1
+
+    TransactionManager.Instance.TransactionTaskDone()
+
+# ---------- outputs ----------
+ok_lines, err_lines, errs_by = [], [], {}
+compact = []
+for idx, inf in enumerate(infos):
+    if inf is None:
+        status, name, h = "error-no_bbox", "(no-name)", 0
+    else:
+        status = "ok" if inf.get("valid", False) else "error-" + str(inf.get("reason",""))
+        if inf.get("reason") == "mixed_seeds":
+            maj = inf.get("seed_major") or "(blank)"
+            sec = inf.get("seed_second") or "(other)"
+            name = "{} | {}".format(maj, sec)
+            h = len([sid for sid in inf.get("minor_seed_ids", [])])
+        else:
+            name = safe(inf.get("group_name"))
+            h = len(inf.get("hits_all", [])) if "hits_all" in inf else 0
+    compact.append({"index": idx, "status": status, "name": name, "hits": h})
+    if status == "ok":
+        ok_lines.append("{} - {}".format(name, h))
+    else:
+        err_lines.append("{} - {} - {}".format(name, h, status.replace("error-","")))
+        errs_by.setdefault(status.replace("error-",""), []).append("{} - {}".format(name, h))
+
+# problem element listings
+ambig_set_names = []
+ambig_detail = []
+for pr in amb_pairs:
+    i, j = pr["i"], pr["j"]
+    ni = safe(infos[i]["group_name"] if infos[i] else "Cluster{}".format(i))
+    nj = safe(infos[j]["group_name"] if infos[j] else "Cluster{}".format(j))
+    ambig_set_names.append(amb_pair_name(ni, nj))
+    ambig_detail.append({"pair": "{} - {}".format(ni, nj),
+                         "count": len(pr["ids"]),
+                         "elements": [pretty_label(x) for x in pr["ids"]]})
+
+mixed_detail = []
+for inf in infos:
+    if inf is None or inf.get("reason") != "mixed_seeds": continue
+    maj = inf.get("seed_major") or "(blank)"
+    sec = inf.get("seed_second") or "(other)"
+    lab = amb_pair_name(maj, sec)
+    mixed_detail.append({
+        "pair": "{} - {}".format(maj, sec),
+        "counts": inf.get("seed_counts", {}),
+        "set": lab,
+        "elements": [pretty_label(x) for x in inf.get("minor_seed_ids", [])]
+    })
+
+simple = {
+    "ok": ok_lines,
+    "errors_flat": err_lines,
+    "errors_by_reason": errs_by,
+    "ambiguous_sets": ambig_set_names,
+    "mixed_seeds_sets": mixed_sets,
+    "problem_elements": {
+        "ambiguous": ambig_detail,
+        "mixed_seeds": mixed_detail
+    },
+    "counts": {"total": len(compact), "ok": len(ok_lines), "errors": len(err_lines)},
+    "writes": {"committed": writes if COMMIT else 0,
+               "skipped_existing": skipped_existing,
+               "conflicts_skipped": skipped_others,
+               "selsets_created": selsets_created,
+               "commit": COMMIT}
+}
+
+summary = {
+    "status": "completed" if COMMIT else "dry-run",
+    "proximity_ft": PROX,
+    "required_categories": REQ_CAT_NAMES,
+    "scope_used": True if scope else False,
+    "clusters_total": len(clusters_idx)
+}
+
+OUT = simple if SIMPLE else {"simple": simple, "clusters": compact, "summary": summary, "ambiguous_pairs_detail": amb_pairs}

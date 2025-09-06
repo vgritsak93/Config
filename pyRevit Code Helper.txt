@@ -1,0 +1,203 @@
+pyRevit Code Helper.txt
+
+Introduction:
+This file is a quick reference and reminder for developing and debugging pyRevit scripts in Revit environments. It summarizes key lessons, common errors, and best practices learned from previous development and troubleshooting sessions.
+
+Key Reminders & Breakthroughs:
+- Always use the correct Revit API classes for your Revit version. For selection sets, use SelectionFilterElement, not SelectionSetElement.
+- When creating model groups, convert Python lists of ElementId to .NET List[ElementId] using System.Collections.Generic.List.
+- All model modifications (creation, renaming, etc.) must occur inside a properly started and committed Transaction. Attempting changes outside a transaction will cause ModificationOutsideTransactionException.
+- Sort lists (such as selection set names) before displaying them in the UI for better user experience.
+- Lint errors for imports (e.g., pyrevit, Autodesk.Revit.UI) are expected outside the Revit/pyRevit environment and can be ignored if the script runs correctly in pyRevit.
+- Use clear, multi-select UI dialogs for user choices when appropriate (forms.SelectFromList with multiselect=True).
+- Always handle empty selections and missing elements gracefully with script.exit() or user alerts.
+
+Debugging Tips:
+- Read traceback errors carefully; they often point directly to the line and type of issue.
+- If you see “expected ICollection[ElementId], got list,” check for .NET/Python type mismatches.
+- If you see “modification outside of transaction,” ensure all changes are inside a Transaction block.
+- For UI or sorting issues, check how lists are constructed and displayed.
+
+Hybrid Workflow for Ungrouping Model Groups:
+- If pyRevit is running, you cannot use Revit UI features simultaneously. For safe ungrouping, use a two-part approach:
+  1. Select model group instances via pyRevit dropdown. If you want to manually ungroup, exit pyRevit and use the UI.
+  2. If no instances exist, or after manual ungrouping, use pyRevit to purge unused group types (those with no instances) via dropdown selection.
+
+UnGroup & Purge Workflow:
+- For orphaned model group types (no instances), you can skip the selection UI and simply prompt the user to purge all with a Yes/No dialog.
+- If group type names are missing, fallback to displaying their ElementId for diagnostics and reporting.
+- Always store the name or ID of a group type before deleting it, to avoid InvalidObjectException when reporting after deletion.
+- Use the standard Revit API Transaction (from Autodesk.Revit.DB import Transaction) for all model modifications, not script.Transaction.
+- Button renaming: To rename a pyRevit button, create a new .pushbutton folder with the desired name and move/copy the script and assets. Remove the old button folder to avoid duplicates.
+
+IronPython Compatibility:
+- IronPython does not support f-strings. Use "{0}".format(val) for string formatting in error messages and output.
+- Some .NET imports may show lint errors in editors but work in pyRevit/IronPython. Ignore these unless you see runtime errors.
+
+.NET List Conversion:
+- To pass a list of ElementId to Revit API methods (e.g., SetElementIds), convert Python lists to .NET List:
+    from System.Collections.Generic import List
+    net_ids = List[ElementId]()
+    for eid in py_list:
+        net_ids.Add(eid)
+
+Transaction Management:
+- Always wrap model modifications in Transaction blocks:
+    t = doc.TransactionManager
+    t.EnsureInTransaction(doc)
+    # ...modifications...
+    t.TransactionTaskDone()
+
+Error Handling:
+- Use try/except blocks for API calls that may fail, and print errors using .format():
+    try:
+        doc.Delete(gt.Id)
+    except Exception as e:
+        script.get_output().print_md("**Could not purge {0}:** {1}".format(gt.Name, e))
+
+UI Dialogs:
+- Use forms.SelectFromList for dropdowns and forms.alert for Yes/No dialogs.
+- Always check for empty selections and handle with script.exit() or alerts.
+
+Diagnostics:
+- Use script.get_output().print_md() for markdown diagnostics and error reporting.
+
+Backup Strategy:
+- Create backup copies of working scripts before major changes.
+
+Common Pitfalls:
+- TypeError: expected ICollection[ElementId], got list – fix by converting to .NET List.
+- SyntaxError: f-string – use .format() instead.
+- ModificationOutsideTransactionException – always use Transaction.
+- InvalidObjectException: Accessing properties of deleted elements will fail. Always store needed info before deletion.
+
+Attributes:
+AdWindows
+Autodesk
+BIN_DIR
+ComponentModel
+Controls
+DB
+DEFAULT_CMDSWITCHWND_WIDTH
+DEFAULT_INPUTWINDOW_HEIGHT
+DEFAULT_INPUTWINDOW_WIDTH
+DEFAULT_RECOGNIZE_ACCESS_KEY
+DEFAULT_SEARCHWND_HEIGHT
+DEFAULT_SEARCHWND_WIDTH
+DOCS
+EXEC_PARAMS
+HOST_APP
+IRONPY
+Input
+Interop
+Media
+ObservableCollection
+OrderedDict
+ParamDef
+PyRevitCPythonNotSupported
+PyRevitException
+System
+Uri
+UriKind
+WPF_COLLAPSED
+WPF_HIDDEN
+WPF_VISIBLE
+XAML_FILES_DIR
+_WPFPanelProvider
+__builtins__
+__doc__
+__file__
+__name__
+__package__
+__path__
+alert
+alert_ifnot
+ask_for_color
+ask_for_date
+ask_for_number_slider
+ask_for_one_item
+ask_for_string
+ask_for_unique_string
+ask_to_use_selected
+check_familydoc
+check_graphicalview
+check_modeldoc
+check_modelview
+check_selection
+check_viewtype
+check_workshared
+close_dockable_panel
+colors
+coreutils
+datetime
+framework
+get_elementid_value_func
+get_logger
+inform_wip
+is_registered_dockable_panel
+mlogger
+namedtuple
+op
+open_dockable_panel
+os
+pick_excel_file
+pick_file
+pick_folder
+pyevent
+re
+reactive
+register_dockable_panel
+result_item_result_clicked
+revit
+safe_strtype
+save_excel_file
+save_file
+select_family_parameters
+select_image
+select_levels
+select_open_docs
+select_parameters
+select_revisions
+select_schedules
+select_sheets
+select_swatch
+select_titleblocks
+select_views
+select_viewtemplates
+show_balloon
+string
+sys
+threading
+toast
+toaster
+toggle_dockable_panel
+user_config
+utils
+versionmgr
+webbrowser
+wpf
+
+Classes:
+CPDialogs
+CommandSwitchWindow
+FamilyParamOption
+Forms
+GetValueWindow
+LevelOption
+ProgressBar
+Reactive
+ResourceDictionary
+RevisionOption
+SearchPrompt
+SelectFromList
+SheetOption
+TemplateListItem
+TemplatePromptBar
+TemplateUserInputWindow
+Threading
+UI
+ViewOption
+WPFPanel
+WPFWindow
+WarningBar
+WindowToggler

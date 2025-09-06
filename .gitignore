@@ -1,0 +1,72 @@
+# ---------------------------
+# Visual Studio / .NET build
+# ---------------------------
+bin/
+obj/
+Debug/
+Release/
+*.user
+*.suo
+*.cache
+*.pdb
+*.log
+*.dll
+*.exe
+*.Up2Date
+*.AssemblyReference.cache
+*.CoreCompileInputs.cache
+*.FileListAbsolute.txt
+
+# NuGet
+*.nupkg
+packages/
+project.lock.json
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Visual Studio
+.vs/
+*.vsidx
+
+# ---------------------------
+# Revit / pyRevit / Dynamo
+# ---------------------------
+# Revit project/family models
+*.rvt
+*.rfa
+<<<<<<< HEAD
+*.rte
+*.nwc
+*.dwg
+
+=======
+*.nwc
+*.dwg
+*.rte
+>>>>>>> 64e6ad44011a853b9e17a586317cf4df968b7bf2
+# Dynamo backups and auto-generated stuff
+*.backup
+*.dyn1
+*.dyn2
+
+# pyRevit compiled cache
+__pycache__/
+*.pyc
+
+# Revit temporary files
+*.rvt~
+*.0001.rvt
+
+# ---------------------------
+# Local-only files
+# ---------------------------
+.git_backup/
+gsync.ps1
+Config_WorkTree_Setup.md
+
+# OS-specific
+Thumbs.db
+Desktop.ini
+.DS_Store

@@ -1,0 +1,14 @@
+# Build
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.cache
+*.ide
+# Logs and exports
+logs/
+exports/
+# OS
+.DS_Store
+Thumbs.db
