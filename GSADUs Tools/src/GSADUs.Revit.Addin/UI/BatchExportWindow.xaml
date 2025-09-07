@@ -1,7 +1,7 @@
 ﻿<Window x:Class="GSADUs.Revit.Addin.UI.BatchExportWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Batch Export" SizeToContent="WidthAndHeight"
+        Title="Batch Export" SizeToContent="Width" Height="560" MinWidth="520"
         WindowStartupLocation="CenterOwner">
   <Grid Margin="12">
     <Grid.RowDefinitions>
@@ -10,7 +10,7 @@
     </Grid.RowDefinitions>
 
     <GroupBox Header="Selection Sets" Margin="0,0,0,8">
-      <ListBox x:Name="SetsList" SelectionMode="Extended" MinWidth="360" MinHeight="180"/>
+      <ListBox x:Name="SetsList" SelectionMode="Extended" MinWidth="420" Height="420" ScrollViewer.CanContentScroll="True"/>
     </GroupBox>
 
     <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
@@ -31,3 +31,6 @@
     </StackPanel>
   </Grid>
 </Window>
+
+
+

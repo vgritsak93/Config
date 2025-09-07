@@ -7,35 +7,30 @@ using Autodesk.Revit.UI;
 
 namespace GSADUs.Revit.Addin
 {
-    public class Startup : IExternalApplication
+  public class Startup : IExternalApplication
+  {
+    public Result OnStartup(UIControlledApplication app)
     {
-        public Result OnStartup(UIControlledApplication app)
-        {
-            const string panelName = "GSADUs";
+      var panel = app.GetRibbonPanels(Tab.AddIns).FirstOrDefault(p => p.Name == "GSADUs")
+               ?? app.CreateRibbonPanel(Tab.AddIns, "GSADUs");
 
-            // Create/find panel on the built-in Add-Ins tab
-            var panel = app.GetRibbonPanels(Tab.AddIns)
-                           .FirstOrDefault(p => p.Name.Equals(panelName, StringComparison.OrdinalIgnoreCase))
-                        ?? app.CreateRibbonPanel(Tab.AddIns, panelName);
-            // (Alternative: app.CreateRibbonPanel(panelName); // defaults to Add-Ins)
+      var pbd = new PushButtonData(
+        "BatchExportBtn", "Batch Export",
+        Assembly.GetExecutingAssembly().Location,
+        "GSADUs.Revit.Addin.BatchExportCommand");
 
-            var pbd = new PushButtonData(
-              "BatchExportBtn", "Batch Export",
-              Assembly.GetExecutingAssembly().Location,
-              "GSADUs.Revit.Addin.BatchExportCommand");
+      var btn = (PushButton)panel.AddItem(pbd);
 
-            var btn = (PushButton)panel.AddItem(pbd);
+      string asmDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
+      string icons  = Path.Combine(asmDir, "icons");
+      var p32 = Path.Combine(icons, "batch_export_32.png");
+      var p16 = Path.Combine(icons, "batch_export_16.png");
+      if (File.Exists(p32)) btn.LargeImage = new BitmapImage(new Uri(p32));
+      if (File.Exists(p16)) btn.Image      = new BitmapImage(new Uri(p16));
 
-            // icons
-            string asmDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
-            string icons = Path.Combine(asmDir, "icons");
-            btn.LargeImage = new BitmapImage(new Uri(Path.Combine(icons, "batch_export_32.png")));
-            btn.Image = new BitmapImage(new Uri(Path.Combine(icons, "batch_export_16.png")));
-
-            return Result.Succeeded;
-        }
-
-        public Result OnShutdown(UIControlledApplication app) => Result.Succeeded;
+      return Result.Succeeded;
     }
-}
 
+    public Result OnShutdown(UIControlledApplication app) => Result.Succeeded;
+  }
+}
