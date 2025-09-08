@@ -1,0 +1,285 @@
+# Manual Selection v2 — quorum, guarded writes, all 2D details, custom selection-set prefix
+# IN[0] Auto/Semi toggle (True means skip this node)
+# IN[1] Proximity feet (number)
+# IN[2] Clustering Categories (list or comma-separated string)
+# IN[3] Update as SelectionSet (bool)
+# IN[4] Manual selection (elements)
+# IN[5] Selectionset Prefix (string; if blank, no prefix added)
+# IN[6] Rename ModelGroup (string)
+
+import clr
+clr.AddReference('RevitServices')
+from RevitServices.Persistence import DocumentManager
+from RevitServices.Transactions import TransactionManager
+
+clr.AddReference('RevitAPI')
+from Autodesk.Revit.DB import (
+    BoundingBoxXYZ, Category, CategoryType, ElementId, FilteredElementCollector, Outline,
+    RevitLinkInstance, SelectionFilterElement, BoundingBoxIntersectsFilter, XYZ,
+    View, ViewType
+)
+from System.Collections.Generic import List as NetList
+
+doc = DocumentManager.Instance.CurrentDBDocument
+
+# ---------------- helpers ----------------
+def unwrap(elems):
+    try: return UnwrapElement(elems)
+    except: return elems
+
+def normalize_cat_names(txt):
+    return [p.strip() for p in str(txt).split(",") if str(p).strip()]
+
+def eid_to_int(eid):
+    try: return int(eid.IntegerValue)
+    except:
+        try: return int(str(eid))
+        except:
+            try: return int(eid)
+            except: return None
+
+def cat_elementid_from_any(x):
+    if isinstance(x, Category): return x.Id
+    ic = getattr(x, "InternalCategory", None)
+    if isinstance(ic, Category): return ic.Id
+    ida = getattr(x, "Id", None)
+    if isinstance(ida, ElementId): return ida
+    try:
+        eid = ElementId(int(x))
+        cat = Category.GetCategory(doc, eid)
+        return cat.Id if cat else None
+    except: return None
+
+def categories_from_input(inval):
+    id_to_name, name_to_id = {}, {}
+    if isinstance(inval, list):
+        for c in inval:
+            eid = cat_elementid_from_any(c)
+            if isinstance(eid, ElementId):
+                cat = Category.GetCategory(doc, eid)
+                nm = cat.Name if cat else str(eid)
+                id_to_name[eid] = nm
+                name_to_id[nm.lower()] = eid
+    else:
+        wanted = normalize_cat_names(inval)
+        index = {}
+        for c in doc.Settings.Categories:
+            try: index[c.Name.lower()] = c
+            except: pass
+        def resolve_name(n):
+            key = n.lower()
+            c = index.get(key)
+            if c is None and key.endswith("s"): c = index.get(key[:-1])
+            if c is None and not key.endswith("s"): c = index.get(key + "s")
+            return c
+        for n in wanted:
+            c = resolve_name(n)
+            if c:
+                id_to_name[c.Id] = c.Name
+                name_to_id[c.Name.lower()] = c.Id
+    return id_to_name, name_to_id
+
+def element_bbox(e, view=None):
+    try: return e.get_BoundingBox(view)
+    except: return None
+
+def bbox_union(bb, bb2):
+    if bb is None: return bb2
+    if bb2 is None: return bb
+    mn = XYZ(min(bb.Min.X, bb2.Min.X), min(bb.Min.Y, bb2.Min.Y), min(bb.Min.Z, bb2.Min.Z))
+    mx = XYZ(max(bb.Max.X, bb2.Max.X), max(bb.Max.Y, bb2.Max.Y), max(bb.Max.Z, bb2.Max.Z))
+    out = BoundingBoxXYZ(); out.Min = mn; out.Max = mx
+    return out
+
+def inflate_bbox(bb, d):
+    if bb is None: return None
+    mn, mx = bb.Min, bb.Max
+    out = BoundingBoxXYZ()
+    out.Min = XYZ(mn.X - d, mn.Y - d, mn.Z - d)
+    out.Max = XYZ(mx.X + d, mx.Y + d, mx.Z + d)
+    return out
+
+def collect_model_intersecting(outline):
+    bbfilter = BoundingBoxIntersectsFilter(outline, 1e-6)
+    fec = FilteredElementCollector(doc).WherePasses(bbfilter).WhereElementIsNotElementType()
+    res = []
+    for e in fec:
+        if isinstance(e, RevitLinkInstance):
+            continue
+        res.append(e)
+    return res
+
+def has_writable_param(e, pname):
+    p = e.LookupParameter(pname)
+    return (p is not None) and (not p.IsReadOnly)
+
+def write_string_param(e, pname, val):
+    p = e.LookupParameter(pname)
+    if p and not p.IsReadOnly:
+        p.Set(val if val is not None else "")
+        return True
+    return False
+
+# 2D details
+ALLOWED_VT = set([
+    ViewType.FloorPlan, ViewType.CeilingPlan, ViewType.EngineeringPlan, ViewType.AreaPlan,
+    ViewType.Section, ViewType.Elevation, ViewType.Detail
+])
+
+def view_crop_intersects_outline(v, outline):
+    try:
+        cb = v.CropBox
+        if cb is None:
+            return False
+        return outline.Intersects(Outline(cb.Min, cb.Max), 1e-6)
+    except:
+        return False
+
+def bb_intersects_outline(bb, outline):
+    try:
+        if bb is None:
+            return False
+        return outline.Intersects(Outline(bb.Min, bb.Max), 1e-6)
+    except:
+        return False
+
+def is_annotation(e):
+    try:
+        c = e.Category
+        if c is None:
+            return False
+        return c.CategoryType == CategoryType.Annotation
+    except:
+        return False
+
+def collect_2d_details_in_outline(outline):
+    out = []
+    views = FilteredElementCollector(doc).OfClass(View).WhereElementIsNotElementType()
+    for v in views:
+        try:
+            if v.IsTemplate: continue
+            if v.ViewType not in ALLOWED_VT: continue
+            if not view_crop_intersects_outline(v, outline): continue
+        except:
+            continue
+        fec = FilteredElementCollector(doc, v.Id).WhereElementIsNotElementType()
+        for e in fec:
+            try:
+                if getattr(e, "OwnerViewId", ElementId.InvalidElementId) != v.Id: continue
+                if not is_annotation(e): continue
+                bb = e.get_BoundingBox(v)
+                if bb_intersects_outline(bb, outline):
+                    out.append(e)
+            except:
+                continue
+    return out
+
+# ---------------- safety guard ----------------
+try:
+    auto_or_semi = bool(IN[0])
+except:
+    auto_or_semi = False
+
+if auto_or_semi:
+    OUT = {
+        "status": "Skipped - Auto or Semi-Auto toggle is ON",
+        "written": 0,
+        "selection_set": None
+    }
+else:
+    # ---------------- inputs ----------------
+    _ignored_autoselect = IN[0]
+    proximity_ft = float(IN[1]) if IN[1] is not None else 0.0
+    cluster_cats_in = IN[2]
+    make_selection_set = bool(IN[3])
+    seeds_in = IN[4] or []
+    prefix_in = IN[5] if IN[5] is not None else ""
+    rename_value = IN[6] if IN[6] is not None else ""
+    prefix = str(prefix_in).strip()  # user controls underscore if desired, e.g. "Manual_"
+    param_name = "ModelGroup"
+
+    # ---------------- main ----------------
+    cat_id_to_name, name_to_cat_id = categories_from_input(cluster_cats_in)
+    required_cat_ids = set(cat_id_to_name.keys())
+
+    seeds = [s for s in unwrap(seeds_in) if hasattr(s, "Id")]
+    seed_filtered = [e for e in seeds if getattr(e, "Category", None) and e.Category and e.Category.Id in required_cat_ids]
+
+    report = {
+        "seeds_in": len(seeds),
+        "seeds_used": len(seed_filtered),
+        "required_categories": [cat_id_to_name[cid] for cid in required_cat_ids],
+        "rename_value": rename_value,
+        "prefix": prefix
+    }
+
+    if len(seed_filtered) == 0:
+        OUT = {"status": "No seeds after category filter. Nothing to do.", "report": report, "written": 0, "updated_ids": []}
+    else:
+        bb = None
+        for e in seed_filtered:
+            eb = element_bbox(e)
+            if eb: bb = bbox_union(bb, eb)
+
+        if bb is None:
+            OUT = {"status": "Seed elements had no bounding boxes. Nothing to do.", "report": report, "written": 0, "updated_ids": []}
+        else:
+            ibb = inflate_bbox(bb, max(0.0, proximity_ft))
+            outline = Outline(ibb.Min, ibb.Max)
+
+            # collect model elements by bbox intersection
+            all_hits = collect_model_intersecting(outline)
+
+            # quorum check
+            present = set()
+            for e in all_hits:
+                c = getattr(e, "Category", None)
+                if c and c.Id in required_cat_ids:
+                    present.add(c.Id)
+            missing = list(required_cat_ids - present)
+
+            report["cluster_hits"] = len(all_hits)
+            report["quorum_missing"] = [cat_id_to_name[cid] for cid in missing]
+
+            if missing:
+                OUT = {"status": "Quorum not satisfied. Missing categories: " + ", ".join(report["quorum_missing"]),
+                       "report": report, "written": 0, "updated_ids": []}
+            else:
+                to_write = [e for e in all_hits if has_writable_param(e, param_name)]
+                ann_2d = collect_2d_details_in_outline(outline)
+
+                n_ok = 0
+                # build selection set name using optional prefix
+                sel_name = (prefix + rename_value) if rename_value.strip() else (prefix + "Cluster")
+
+                TransactionManager.Instance.EnsureInTransaction(doc)
+
+                # write only if rename is non-empty
+                if rename_value.strip():
+                    for e in to_write:
+                        if write_string_param(e, param_name, rename_value):
+                            n_ok += 1
+
+                if make_selection_set:
+                    ids = NetList[ElementId]()
+                    for e in all_hits: ids.Add(e.Id)
+                    for a in ann_2d:  ids.Add(a.Id)
+                    existing = None
+                    for sf in FilteredElementCollector(doc).OfClass(SelectionFilterElement):
+                        if sf.Name == sel_name:
+                            existing = sf; break
+                    if existing:
+                        existing.SetElementIds(ids)
+                    else:
+                        sfe = SelectionFilterElement.Create(doc, sel_name)
+                        sfe.SetElementIds(ids)
+
+                TransactionManager.Instance.TransactionTaskDone()
+
+                OUT = {
+                    "status": "Success",
+                    "report": dict(report, details_2d_added=len(ann_2d)),
+                    "written": n_ok,
+                    "updated_ids": [eid_to_int(e.Id) for e in to_write if eid_to_int(e.Id) is not None] if rename_value.strip() else [],
+                    "selection_set": sel_name if make_selection_set else None
+                }

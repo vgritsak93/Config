@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+  <AddIn Type="Command">
+    <Name>GSADUsRevitAddin</Name>
+    <Assembly>G:\Shared drives\GSADUs Projects\Our Models\0 - CATALOG\Config\Visual Studio\GSADUsRevitAddin\GSADUsRevitAddin\bin\Debug\GSADUsRevitAddin.dll</Assembly>
+    <AddInId>E5B48D43-DD13-4A93-BD12-5D3A523C53FD</AddInId>
+    <FullClassName>GSADUsRevitAddin.Forms.MainPanelCommand</FullClassName>
+    <VendorId>GSAD</VendorId>
+    <VendorDescription>GSADUs Projects</VendorDescription>
+  </AddIn>
+</RevitAddIns>

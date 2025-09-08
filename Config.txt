@@ -1,0 +1,57 @@
+# ADU Models Project Config
+
+## Usage Instructions
+- This file is a persistent project memory box for workflows, file paths, system variables, and automation tools.
+- Do NOT overwrite existing data unless explicitly approved by the user.
+- Appending new info is OK; suggesting edits to existing data is OK.
+- Always preserve Revit/system version info and critical environment variables.
+- Use this file to cross-reference project structure, automation scripts, and system setup in future sessions.
+
+## Key Folders
+- Config folder: G:\Shared drives\GSADUs Projects\Our Models\0 - CATALOG\Config
+- Output dump folder: G:\Shared drives\GSADUs Projects\Our Models\0 - CATALOG\Output
+- Model group root: G:\Shared drives\GSADUs Projects\Our Models\0 - CATALOG\3 - Models
+- Template files: G:\Shared drives\GSADUs Projects\Our Models\0 - CATALOG\2 - Revit\Template
+- Python scripts: G:\Shared drives\GSADUs Projects\Our Models\0 - CATALOG\Config\Python Scripts
+- CSV logs: G:\Shared drives\GSADUs Projects\Our Models\0 - CATALOG\Config\CSV Logs
+
+## Automation Scripts
+- batch_move_rvt.py: Moves RVT files from Output to correct subfolders, upserts log in batch_move_log.csv.
+- batch_move_log.csv: Tracks file moves by model group key, supports upsert and future batch automation.
+
+## Workflows
+- Export model groups to Output using Revit UI or automation.
+- Run batch_move_rvt.py to organize and log RVT files.
+- Use batch_move_log.csv as manifest for further automation (e.g., batch linking/tagging in Revit).
+
+## System & Environment
+REVIT:
+Revit Version: Autodesk Revit 2026.2
+Build: 26.2.0.20
+Build Date: 20250630_1515(x64)
+pyRevit Version: v5.2.0
+Deployment: basepublic
+IronPython Version: 2.7.12 (cpython 3123)
+IPY Version: 2712
+App Version: 2026.2
+Environment:
+OS: Windows (x64)
+All standard Revit API DLLs are present (RevitAPI.dll, RevitAPIUI.dll, etc.)
+API Documentation:
+Reference: Revit 2026 API Documentation
+
+## Notes
+- Config.txt is for persistent project info, not daily logs.
+- Cross-reference with ADU Models Dev Sessions.txt for session history.
+
+
+GitHub Recovery Code:
+KM6KZDNPVH6RYTWM22SD9YMPV8ZQ57
+
+# End of Config
+
+
+
+
+
+
