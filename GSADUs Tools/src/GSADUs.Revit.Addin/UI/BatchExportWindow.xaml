@@ -19,8 +19,8 @@
 
     <DockPanel Grid.Row="1" LastChildFill="True" Margin="0,0,0,8">
       <TextBox x:Name="OutputDirBox" Margin="0,0,8,0" />
-      <Button  x:Name="BrowseBtn"   Width="80" Content="Browse..." />
-    </DockPanel>
+            <Button  x:Name="BrowseBtn" Content="Browse..." Click="BrowseBtn_Click" DockPanel.Dock="Right" Width="80" RenderTransformOrigin="3.237,0.515"/>
+        </DockPanel>
 
     <DockPanel Grid.Row="2" LastChildFill="False">
       <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" HorizontalAlignment="Left" Margin="0,0,8,0">
@@ -30,9 +30,10 @@
         <CheckBox x:Name="OverwriteBox"  Content="Overwrite" />
       </StackPanel>
       <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
-        <Button x:Name="RunBtn"    Width="90" Margin="0,0,8,0" Content="Run"   IsDefault="True"/>
+        <Button x:Name="RunBtn"    Width="90" Margin="0,0,8,0" Content="Run"   IsDefault="True" Click="Run_Click"/>
         <Button x:Name="CancelBtn" Width="90" Content="Cancel" IsCancel="True"/>
       </StackPanel>
     </DockPanel>
   </Grid>
 </Window>
+

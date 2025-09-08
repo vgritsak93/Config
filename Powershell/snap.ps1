@@ -15,7 +15,9 @@ if ($SolutionPath.ToLower() -notlike '*.sln') { Write-Host "Not a .sln: $Solutio
 $sln     = Get-Item -LiteralPath $SolutionPath
 $slnDir  = Split-Path $sln.FullName -Parent
 $base    = $sln.BaseName
-$logPath = Join-Path $slnDir ($base + ".solution_snapshot.log")
+$logDir  = "C:\Users\Vadim\OneDrive\Documents\PowerShell\Logs"
+if (!(Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+$logPath = Join-Path $logDir ($base + ".solution_snapshot.log")
 
 # ---- helpers -------------------------------------------------------------
 if (Test-Path $logPath) { Remove-Item $logPath -Force -ErrorAction SilentlyContinue }
