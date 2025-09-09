@@ -1,19 +1,23 @@
 # snap.ps1 — right-click friendly snapshot logger with pause
 # ToolVersion: 2.7  (PS 5.1 + PS 7 compatible)
 
-[CmdletBinding()]
-param(
-  [string]$SolutionRoot,   # optional; defaults to script folder
-  [string]$SlnName,        # optional; first *.sln in folder
-  [switch]$NoOpen,         # do not open Notepad
-  [switch]$NoPause         # do not wait for Enter
-)
+# Relaunch without profiles when invoked from Explorer
+if (-not $env:SNAP_NOPROFILE) {
+  $exe = ($PSVersionTable.PSEdition -eq 'Core') ? 'pwsh' : 'powershell'
+  $snapArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',"`$PSCommandPath`"")
+  $env:SNAP_NOPROFILE = '1'
+  Start-Process -FilePath $exe -ArgumentList $snapArgs -Wait
+  exit
+}
+
+
+
 
 $ErrorActionPreference = 'Stop'
 $script:LogPath = $null
 
-function Pause-IfNeeded {
-  if (-not $NoPause) { [void](Read-Host 'Press Enter to close') }
+function Wait-IfNeeded {
+  [void](Read-Host 'Press Enter to close')
 }
 
 try {
@@ -40,7 +44,7 @@ try {
 
   function Write-Section([string]$title) { "`n=== $title ===" }
 
-  function Run-Cmd {
+  function Invoke-CommandLine {
     param([string]$Command, [int]$Expected = 0)
     $sw = [Diagnostics.Stopwatch]::StartNew()
     try { Invoke-Expression $Command 2>&1 | ForEach-Object { $_ } ; $code = $LASTEXITCODE } catch { $_ ; $code = 1 } finally { $sw.Stop() }
@@ -133,13 +137,13 @@ try {
   Write-Section "ENVIRONMENT"
   "OS: $([Environment]::OSVersion.VersionString)"
   "PowerShell: $($PSVersionTable.PSVersion)"
-  "> dotnet --list-sdks"; Run-Cmd "dotnet --list-sdks"
-  "> dotnet --info";     Run-Cmd "dotnet --info"
+  "> dotnet --list-sdks"; Invoke-CommandLine "dotnet --list-sdks"
+  "> dotnet --info";     Invoke-CommandLine "dotnet --info"
 
   # Solution map
   Write-Section "SOLUTION MAP"
   "> dotnet sln `"$SlnPath`" list"
-  Run-Cmd "dotnet sln `"$SlnPath`" list"
+  Invoke-CommandLine "dotnet sln `"$SlnPath`" list"
 
   # Raw sln
   Write-Section "SLN CONTENT (RAW)"
@@ -160,10 +164,10 @@ try {
     } catch { "  <project file parse skipped>" }
 
     "> dotnet restore $proj --nologo --verbosity minimal"
-    Run-Cmd "dotnet restore `"$proj`" --nologo --verbosity minimal"
+  Invoke-CommandLine "dotnet restore `"$proj`" --nologo --verbosity minimal"
 
     "> dotnet list $proj package"
-    Run-Cmd "dotnet list `"$proj`" package"
+  Invoke-CommandLine "dotnet list `"$proj`" package"
   }
 
   # Inventory
@@ -178,21 +182,20 @@ try {
   # References
   Write-Section "REFERENCE RESOLUTION"
   foreach ($proj in $projects) {
-    "> dotnet msbuild $proj -t:ResolveReferences -nologo -clp:NoSummary -v:m"
-    Run-Cmd "dotnet msbuild `"$proj`" -t:ResolveReferences -nologo -clp:NoSummary -v:m"
+  "> dotnet msbuild $proj -t:ResolveReferences -nologo -clp:NoSummary -v:m"
+  Invoke-CommandLine "dotnet msbuild `"$proj`" -t:ResolveReferences -nologo -clp:NoSummary -v:m"
   }
 
   # Build summary
   Write-Section "BUILD SUMMARY"
   "> dotnet build $SlnPath -nologo -clp:Summary -v:m"
-  Run-Cmd "dotnet build `"$SlnPath`" -nologo -clp:Summary -v:m"
+  Invoke-CommandLine "dotnet build `"$SlnPath`" -nologo -clp:Summary -v:m"
 
 } catch {
   "ERROR: $($_.Exception.Message)"
-} finally {
+}
+finally {
   try { Stop-Transcript | Out-Null } catch {}
-  if ($script:LogPath -and (Test-Path -LiteralPath $script:LogPath) -and (-not $NoOpen)) {
-    Start-Process notepad.exe $script:LogPath
-  }
-  Pause-IfNeeded
+  # Headless: do not open Notepad, do not prompt
+  Wait-IfNeeded
 }

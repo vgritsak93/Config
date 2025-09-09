@@ -67,6 +67,7 @@ namespace GSADUs.Revit.Addin
 
                     // 1) Write copy
                     File.Copy(doc.PathName, outFile, s.Overwrite);
+                    FileCleanup.DeleteRvtBackups(Path.GetDirectoryName(outFile));
 
                     // 2) Recenter if requested
                     if (s.RecenterXY && uniqueBySet.TryGetValue(setName, out var uids) && uids.Count > 0)
