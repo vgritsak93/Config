@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>GSADUs Batch Export</Name>
+    <Assembly>G:\Shared drives\GSADUs Projects\Our Models\0 - CATALOG\Config\GSADUs Tools\src\GSADUs.Revit.Addin\bin\x64\Debug\net8.0-windows\GSADUs.Revit.Addin.dll</Assembly>
+    <AddInId>7F2F8A1E-5CE3-4A6E-9F3E-6F7A7C1C9E01</AddInId>
+    <FullClassName>GSADUs.Revit.Addin.Startup</FullClassName>
+    <VendorId>GSADU</VendorId>
+    <VendorDescription>GSADUs Tools</VendorDescription>
+  </AddIn>
+</RevitAddIns>

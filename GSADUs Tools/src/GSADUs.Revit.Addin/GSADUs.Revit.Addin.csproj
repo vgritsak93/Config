@@ -19,6 +19,20 @@
 		<Optimize>true</Optimize>
 	</PropertyGroup>
 
+	<PropertyGroup>
+    <DeployDir>C:\GSADUs\RevitAddin\</DeployDir>
+  </PropertyGroup>
+
+	<PropertyGroup>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+
+	<ItemGroup>
+	  <None Remove="icons\batch_export_16.png" />
+	  <None Remove="icons\batch_export_32.png" />
+	</ItemGroup>
+
 	<ItemGroup>
 		<Reference Include="RevitAPI">
 			<HintPath>C:\Program Files\Autodesk\Revit 2026\RevitAPI.dll</HintPath>
@@ -29,5 +43,20 @@
 			<Private>false</Private>
 		</Reference>
 	</ItemGroup>
+
+	<ItemGroup>
+    <Resource Include="icons\batch_export_16.png" />
+    <Resource Include="icons\batch_export_32.png" />
+  </ItemGroup>
+
+	<ItemGroup>
+    <DeployFiles Include="$(TargetPath)" />
+    <DeployFiles Include="$(TargetDir)$(TargetName).pdb" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+  </ItemGroup>
+
+  <Target Name="AfterBuild">
+    <MakeDir Directories="$(DeployDir)" />
+    <Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(DeployDir)" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
