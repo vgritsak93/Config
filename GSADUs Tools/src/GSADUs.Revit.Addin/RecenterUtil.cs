@@ -2,41 +2,100 @@ using System;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
 
-namespace GSADUs.Revit.Addin {
-    internal static class RecenterUtil {
-        static bool Finite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+namespace GSADUs.Revit.Addin
+{
+    internal static class RecenterUtil
+    {
+        private static bool Finite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
 
-        public static void CenterSelectionXY(Document doc, IList<ElementId> ids) {
+        /// <summary>
+        /// Center the given selection set to Internal Origin in XY, using union BB of Walls.
+        /// Matches the prototype pyRevit logic.
+        /// </summary>
+        public static void CenterSelectionXY(Document doc, IList<ElementId> ids)
+        {
             if (doc == null) throw new ArgumentNullException(nameof(doc));
             if (ids == null || ids.Count == 0) return;
 
-            bool any = false;
-            XYZ min = new XYZ(double.PositiveInfinity, double.PositiveInfinity, 0);
-            XYZ max = new XYZ(double.NegativeInfinity, double.NegativeInfinity, 0);
+            double minx = double.PositiveInfinity, miny = double.PositiveInfinity;
+            double maxx = double.NegativeInfinity, maxy = double.NegativeInfinity;
+            bool found = false;
 
-            foreach (var id in ids) {
+            foreach (var id in ids)
+            {
                 var e = doc.GetElement(id);
                 if (e == null) continue;
+                if (e.Category == null || e.Category.Id != new ElementId(BuiltInCategory.OST_Walls)) continue;
+
                 BoundingBoxXYZ bb = null;
-                try { bb = e.get_BoundingBox(null); } catch { bb = null; }
+                try { bb = e.get_BoundingBox(null); } catch { }
                 if (bb == null || bb.Min == null || bb.Max == null) continue;
-                if (!(Finite(bb.Min.X) && Finite(bb.Min.Y) && Finite(bb.Max.X) && Finite(bb.Max.Y))) continue;
 
-                min = new XYZ(Math.Min(min.X, bb.Min.X), Math.Min(min.Y, bb.Min.Y), 0);
-                max = new XYZ(Math.Max(max.X, bb.Max.X), Math.Max(max.Y, bb.Max.Y), 0);
-                any = true;
+                var xs = new[] { bb.Min.X, bb.Max.X };
+                var ys = new[] { bb.Min.Y, bb.Max.Y };
+
+                if (Finite(xs[0]) && Finite(xs[1]) && Finite(ys[0]) && Finite(ys[1]))
+                {
+                    minx = Math.Min(minx, Math.Min(xs[0], xs[1]));
+                    miny = Math.Min(miny, Math.Min(ys[0], ys[1]));
+                    maxx = Math.Max(maxx, Math.Max(xs[0], xs[1]));
+                    maxy = Math.Max(maxy, Math.Max(ys[0], ys[1]));
+                    found = true;
+                }
             }
-            if (!any) return;
 
-            var cx = 0.5 * (min.X + max.X);
-            var cy = 0.5 * (min.Y + max.Y);
-            if (!(Finite(cx) && Finite(cy))) return;
+            if (!found) return; // no valid Walls bounding boxes
 
-            var delta = new XYZ(-cx, -cy, 0);
-            using (var t = new Transaction(doc, "GSADUs Center To Origin")) {
-                t.Start();
-                try { ElementTransformUtils.MoveElements(doc, (ICollection<ElementId>)ids, delta); t.Commit(); }
-                catch { t.RollBack(); throw; }
+            if (!Finite(minx) || !Finite(miny) || !Finite(maxx) || !Finite(maxy) ||
+                minx > maxx || miny > maxy) return;
+
+            var cx = 0.5 * (minx + maxx);
+            var cy = 0.5 * (miny + maxy);
+            if (!Finite(cx) || !Finite(cy)) return;
+
+            var delta = new XYZ(-cx, -cy, 0.0);
+            if (!Finite(delta.X) || !Finite(delta.Y)) return;
+
+            // Remember pinned state, unpin before move
+            var pinned = new Dictionary<ElementId, bool>();
+            foreach (var id in ids)
+            {
+                var e = doc.GetElement(id);
+                if (e != null) pinned[id] = e.Pinned;
+            }
+
+            using (var tg = new TransactionGroup(doc, "GSADUs: Center To Origin"))
+            {
+                tg.Start();
+                using (var t = new Transaction(doc, "Move ADU model"))
+                {
+                    t.Start();
+                    try
+                    {
+                        foreach (var kv in pinned)
+                        {
+                            var e = doc.GetElement(kv.Key);
+                            if (e != null && e.Pinned) e.Pinned = false;
+                        }
+
+                        ElementTransformUtils.MoveElements(doc, (ICollection<ElementId>)ids, delta);
+
+                        foreach (var kv in pinned)
+                        {
+                            var e = doc.GetElement(kv.Key);
+                            if (e != null) e.Pinned = kv.Value;
+                        }
+
+                        t.Commit();
+                    }
+                    catch
+                    {
+                        t.RollBack();
+                        tg.RollBack();
+                        throw;
+                    }
+                }
+                tg.Assimilate();
             }
         }
     }
